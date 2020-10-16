@@ -20,16 +20,28 @@
 
 #include "lisp.h"
 
+void rmkdir(const char *path);
+
 std::shared_ptr<Lisp_Obj> Lisp::filestream(const std::shared_ptr<Lisp_List> &args)
 {
-	if (args->length() == 1
-		&& args->m_v[0]->is_type(lisp_type_string))
+	if (args->length() == 1 && args->m_v[0]->is_type(lisp_type_string)
+		|| args->length() == 2 && args->m_v[0]->is_type(lisp_type_string) && args->m_v[1]->is_type(lisp_type_integer))
 	{
-		auto s = std::make_shared<Lisp_File_Stream>(std::static_pointer_cast<Lisp_String>(args->m_v[0])->m_string);
-		if (s->is_open()) return s;
+		auto mode = 0;
+		if (args->length() == 2) mode = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
+		if (mode)
+		{
+			auto s = std::make_shared<Lisp_File_OStream>(std::static_pointer_cast<Lisp_String>(args->m_v[0])->m_string, mode);
+			if (s->is_open()) return s;
+		}
+		else
+		{
+			auto s = std::make_shared<Lisp_File_IStream>(std::static_pointer_cast<Lisp_String>(args->m_v[0])->m_string);
+			if (s->is_open()) return s;
+		}
 		return m_sym_nil;
 	}
-	return repl_error("(file-stream path)", error_msg_wrong_types, args);
+	return repl_error("(file-stream path [mode])", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::strstream(const std::shared_ptr<Lisp_List> &args)
@@ -108,7 +120,7 @@ std::shared_ptr<Lisp_Obj> Lisp::write(const std::shared_ptr<Lisp_List> &args)
 		auto stream = std::static_pointer_cast<Lisp_OStream>(args->m_v[0]);
 		auto value = std::static_pointer_cast<Lisp_String>(args->m_v[1]);
 		stream->write_line(value->m_string);
-		return value;
+		return stream;
 	}
 	return repl_error("(write stream str)", error_msg_wrong_types, args);
 }
@@ -145,7 +157,7 @@ std::shared_ptr<Lisp_Obj> Lisp::writechar(const std::shared_ptr<Lisp_List> &args
 							std::static_pointer_cast<Lisp_OStream>(args->m_v[0])->write_char(*(chars++));
 						} while (--w);
 					}
-					return list->m_v[list->m_v.size() - 1];
+					return args->m_v[0];
 				}
 				return repl_error("(write-char stream list|num [width])", error_msg_wrong_num_of_args, args);
 			}
@@ -157,28 +169,13 @@ std::shared_ptr<Lisp_Obj> Lisp::writechar(const std::shared_ptr<Lisp_List> &args
 				{
 					std::static_pointer_cast<Lisp_OStream>(args->m_v[0])->write_char(*(chars++));
 				} while (--width);
-				return value;
+				return args->m_v[0];
 			}
 			return repl_error("(write-char stream list|num [width])", error_msg_not_a_number, args);
 		}
 		return repl_error("(write-char stream list|num [width])", error_msg_not_a_stream, args);
 	}
 	return repl_error("(write-char stream list|num [width])", error_msg_wrong_num_of_args, args);
-}
-
-std::shared_ptr<Lisp_Obj> Lisp::writeline(const std::shared_ptr<Lisp_List> &args)
-{
-	if (args->length() == 2
-		&& args->m_v[0]->is_type(lisp_type_ostream)
-		&& args->m_v[1]->is_type(lisp_type_string))
-	{
-		auto stream = std::static_pointer_cast<Lisp_OStream>(args->m_v[0]);
-		auto value = std::static_pointer_cast<Lisp_String>(args->m_v[1]);
-		stream->write_line(value->m_string);
-		stream->write_char('\n');
-		return value;
-	}
-	return repl_error("(write-line stream str)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::prin(const std::shared_ptr<Lisp_List> &args)
@@ -209,6 +206,12 @@ std::shared_ptr<Lisp_Obj> Lisp::save(const std::shared_ptr<Lisp_List> &args)
 		std::ofstream f;
 		f.open(std::static_pointer_cast<Lisp_String>(args->m_v[1])->m_string,
 			std::ofstream::out | std::ofstream::trunc | std::ofstream::binary);
+		if (!f.is_open())
+		{
+			rmkdir(std::static_pointer_cast<Lisp_String>(args->m_v[1])->m_string.c_str());
+			f.open(std::static_pointer_cast<Lisp_String>(args->m_v[1])->m_string,
+				std::ofstream::out | std::ofstream::trunc | std::ofstream::binary);
+		}
 		if (f.is_open())
 		{
 			f << std::static_pointer_cast<Lisp_String>(args->m_v[0])->m_string;

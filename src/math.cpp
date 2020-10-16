@@ -90,34 +90,6 @@ std::shared_ptr<Lisp_Obj> Lisp::mod(const std::shared_ptr<Lisp_List> &args)
 	return repl_error("(mod num num ...)", error_msg_wrong_types, args);
 }
 
-std::shared_ptr<Lisp_Obj> Lisp::fmul(const std::shared_ptr<Lisp_List> &args)
-{
-	if (args->length() > 1
-		&& std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
-	{
-		auto init = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v) + 1, end(args->m_v), init, [] (auto n, auto &o)
-		{
-			return (n * std::static_pointer_cast<Lisp_Integer>(o)->m_value) >> 16;
-		}));
-	}
-	return repl_error("(fmul num num ...)", error_msg_wrong_types, args);
-}
-
-std::shared_ptr<Lisp_Obj> Lisp::fdiv(const std::shared_ptr<Lisp_List> &args)
-{
-	if (args->length() > 1
-		&& std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
-	{
-		auto init = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v) + 1, end(args->m_v), init, [] (auto n, auto &o)
-		{
-			return (n << 16) / std::static_pointer_cast<Lisp_Integer>(o)->m_value;
-		}));
-	}
-	return repl_error("(fdiv num num ...)", error_msg_wrong_types, args);
-}
-
 std::shared_ptr<Lisp_Obj> Lisp::max(const std::shared_ptr<Lisp_List> &args)
 {
 	if (args->length() > 1
@@ -249,44 +221,38 @@ std::shared_ptr<Lisp_Obj> Lisp::ge(const std::shared_ptr<Lisp_List> &args)
 
 std::shared_ptr<Lisp_Obj> Lisp::band(const std::shared_ptr<Lisp_List> &args)
 {
-	if (args->length() > 1
-		&& std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
+	if (std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
 	{
-		auto init = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v) + 1, end(args->m_v), init, [] (auto n, auto &o)
+		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v), end(args->m_v), -1, [] (auto n, auto &o)
 		{
 			return n & std::static_pointer_cast<Lisp_Integer>(o)->m_value;
 		}));
 	}
-	return repl_error("(bit-and num num ...)", error_msg_wrong_types, args);
+	return repl_error("(logand [num] ...)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::bor(const std::shared_ptr<Lisp_List> &args)
 {
-	if (args->length() > 1
-		&& std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
+	if (std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
 	{
-		auto init = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v) + 1, end(args->m_v), init, [] (auto n, auto &o)
+		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v), end(args->m_v), 0, [] (auto n, auto &o)
 		{
 			return n | std::static_pointer_cast<Lisp_Integer>(o)->m_value;
 		}));
 	}
-	return repl_error("(bit-or num num ...)", error_msg_wrong_types, args);
+	return repl_error("(logior [num] ...)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::bxor(const std::shared_ptr<Lisp_List> &args)
 {
-	if (args->length() > 1
-		&& std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
+	if (std::all_of(begin(args->m_v), end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_integer); }))
 	{
-		auto init = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v) + 1, end(args->m_v), init, [] (auto n, auto &o)
+		return std::make_shared<Lisp_Integer>(std::accumulate(begin(args->m_v), end(args->m_v), 0, [] (auto n, auto &o)
 		{
 			return n ^ std::static_pointer_cast<Lisp_Integer>(o)->m_value;
 		}));
 	}
-	return repl_error("(bit-xor num num ...)", error_msg_wrong_types, args);
+	return repl_error("(logxor [num] ...)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::bshl(const std::shared_ptr<Lisp_List> &args)
@@ -299,7 +265,7 @@ std::shared_ptr<Lisp_Obj> Lisp::bshl(const std::shared_ptr<Lisp_List> &args)
 		auto c = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
 		return std::make_shared<Lisp_Integer>(n << c);
 	}
-	return repl_error("(bit-shl num cnt)", error_msg_wrong_types, args);
+	return repl_error("(shl num cnt)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::bshr(const std::shared_ptr<Lisp_List> &args)
@@ -312,7 +278,7 @@ std::shared_ptr<Lisp_Obj> Lisp::bshr(const std::shared_ptr<Lisp_List> &args)
 		auto c = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
 		return std::make_shared<Lisp_Integer>(n >> c);
 	}
-	return repl_error("(bit-shr num cnt)", error_msg_wrong_types, args);
+	return repl_error("(shr num cnt)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::basr(const std::shared_ptr<Lisp_List> &args)
@@ -325,5 +291,41 @@ std::shared_ptr<Lisp_Obj> Lisp::basr(const std::shared_ptr<Lisp_List> &args)
 		auto c = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
 		return std::make_shared<Lisp_Integer>(n >> c);
 	}
-	return repl_error("(bit-asr num cnt)", error_msg_wrong_types, args);
+	return repl_error("(asr num cnt)", error_msg_wrong_types, args);
+}
+
+static unsigned long long seed = 1234567890;
+
+std::shared_ptr<Lisp_Obj> Lisp::random(const std::shared_ptr<Lisp_List> &args)
+{
+	if (args->length() == 1
+		&& args->m_v[0]->is_type(lisp_type_integer))
+	{
+		auto n = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
+		seed = (seed * 17) ^ 0xa5a5a5a5a5a5a5a5;
+		return std::make_shared<Lisp_Integer>(seed % n);
+	}
+	return repl_error("(random num)", error_msg_wrong_types, args);
+}
+
+std::shared_ptr<Lisp_Obj> Lisp::neg(const std::shared_ptr<Lisp_List> &args)
+{
+	if (args->length() == 1
+		&& args->m_v[0]->is_type(lisp_type_integer))
+	{
+		auto n = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
+		return std::make_shared<Lisp_Integer>(-n);
+	}
+	return repl_error("(neg num)", error_msg_wrong_types, args);
+}
+
+std::shared_ptr<Lisp_Obj> Lisp::abs(const std::shared_ptr<Lisp_List> &args)
+{
+	if (args->length() == 1
+		&& args->m_v[0]->is_type(lisp_type_integer))
+	{
+		auto n = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
+		return std::make_shared<Lisp_Integer>(std::abs(n));
+	}
+	return repl_error("(abs num)", error_msg_wrong_types, args);
 }

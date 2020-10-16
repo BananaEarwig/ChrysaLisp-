@@ -162,6 +162,17 @@ std::shared_ptr<Lisp_Obj> Lisp::slice(const std::shared_ptr<Lisp_List> &args)
 	return repl_error("(slice start end seq)", error_msg_wrong_types, args);
 }
 
+std::shared_ptr<Lisp_Obj> Lisp::cap(const std::shared_ptr<Lisp_List> &args)
+{
+	if (args->length() >= 2
+		&& args->m_v[0]->is_type(lisp_type_integer)
+		&& std::all_of(begin(args->m_v) + 1, end(args->m_v), [] (auto &&o) { return o->is_type(lisp_type_list); }))
+	{
+		return args->m_v[args->length() - 1];
+	}
+	return repl_error("(cap num array)", error_msg_wrong_types, args);
+}
+
 std::shared_ptr<Lisp_Obj> Lisp::cat(const std::shared_ptr<Lisp_List> &args)
 {
 	if (args->length()
@@ -193,6 +204,31 @@ std::shared_ptr<Lisp_Obj> Lisp::find(const std::shared_ptr<Lisp_List> &args)
 		{
 			auto str1 = std::static_pointer_cast<Lisp_String>(args->m_v[0]);
 			auto str2 = std::static_pointer_cast<Lisp_String>(args->m_v[1]);
+			auto itr = std::find(cbegin(str2->m_string), cend(str2->m_string), str1->m_string[0]);
+			if (itr == cend(str2->m_string)) return m_sym_nil;
+			return std::make_shared<Lisp_Integer>(itr - cbegin(str2->m_string));
+		}
+		else if (args->m_v[1]->is_type(lisp_type_list))
+		{
+			auto lst = std::static_pointer_cast<Lisp_List>(args->m_v[1]);
+			auto itr = std::find(cbegin(lst->m_v), cend(lst->m_v), args->m_v[0]);
+			if (itr == cend(lst->m_v)) return m_sym_nil;
+			return std::make_shared<Lisp_Integer>(itr - cbegin(lst->m_v));
+		}
+		return repl_error("(find-rev elem seq)", error_msg_not_a_sequence, args);
+	}
+	return repl_error("(find-rev elem seq)", error_msg_wrong_num_of_args, args);
+}
+
+std::shared_ptr<Lisp_Obj> Lisp::rfind(const std::shared_ptr<Lisp_List> &args)
+{
+	if (args->length() == 2)
+	{
+		if (args->m_v[0]->is_type(lisp_type_string)
+			&& args->m_v[1]->is_type(lisp_type_string))
+		{
+			auto str1 = std::static_pointer_cast<Lisp_String>(args->m_v[0]);
+			auto str2 = std::static_pointer_cast<Lisp_String>(args->m_v[1]);
 			auto itr = std::find(crbegin(str2->m_string), crend(str2->m_string), str1->m_string[0]);
 			if (itr == crend(str2->m_string)) return m_sym_nil;
 			return std::make_shared<Lisp_Integer>((crend(str2->m_string) - itr - 1));
@@ -204,9 +240,9 @@ std::shared_ptr<Lisp_Obj> Lisp::find(const std::shared_ptr<Lisp_List> &args)
 			if (itr == crend(lst->m_v)) return m_sym_nil;
 			return std::make_shared<Lisp_Integer>((crend(lst->m_v)) - itr - 1);
 		}
-		return repl_error("(find elem seq)", error_msg_not_a_sequence, args);
+		return repl_error("(find-rev elem seq)", error_msg_not_a_sequence, args);
 	}
-	return repl_error("(find elem seq)", error_msg_wrong_num_of_args, args);
+	return repl_error("(find-rev elem seq)", error_msg_wrong_num_of_args, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::merge(const std::shared_ptr<Lisp_List> &args)
@@ -227,7 +263,7 @@ std::shared_ptr<Lisp_Obj> Lisp::merge(const std::shared_ptr<Lisp_List> &args)
 			return lst1;
 		}
 	}
-	return repl_error("(merge-sym list list)", error_msg_wrong_types, args);
+	return repl_error("(merge-obj list list)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::split(const std::shared_ptr<Lisp_List> &args)
@@ -239,15 +275,40 @@ std::shared_ptr<Lisp_Obj> Lisp::split(const std::shared_ptr<Lisp_List> &args)
 		auto str1 = std::static_pointer_cast<Lisp_String>(args->m_v[0]);
 		auto str2 = std::static_pointer_cast<Lisp_String>(args->m_v[1]);
 		auto value = std::make_shared<Lisp_List>();
-		std::stringstream ss(str1->m_string);
-		std::string item;
-		while (std::getline(ss, item, str2->m_string[0]))
+		for (auto itr = begin(str1->m_string); itr != end(str1->m_string);)
 		{
+			while (str2->m_string.find(*itr) != std::string::npos)
+			{
+				itr++;
+				if (itr == end(str1->m_string)) return value;
+			}
+			auto start = itr;
+			if (*itr == '"')
+			{
+				do
+				{
+					itr++;
+					if (*itr == '"')
+					{
+						itr++;
+						break;
+					}
+				} while (itr != end(str1->m_string));
+			}
+			else
+			{
+				while (str2->m_string.find(*itr) == std::string::npos)
+				{
+					itr++;
+					if (itr == end(str1->m_string)) break;
+				}
+			}
+			auto item = std::string(start, itr);
 			value->m_v.push_back(std::make_shared<Lisp_String>(item));
-		}
+		};
 		return value;
 	}
-	return repl_error("(split str char)", error_msg_wrong_types, args);
+	return repl_error("(split str chars)", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::match(const std::shared_ptr<Lisp_List> &args)
@@ -328,6 +389,7 @@ std::shared_ptr<Lisp_Obj> Lisp::code(const std::shared_ptr<Lisp_List> &args)
 		auto index = 0;
 		if (args->length() > 1) width = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
 		if (args->length() > 2) index = std::static_pointer_cast<Lisp_Integer>(args->m_v[2])->m_value;
+		if (index < 0) index += str.size() + 1;
 		auto code = 0ll;
 		std::copy(&str[index], &str[index + width], (char*)&code);
 		return std::make_shared<Lisp_Integer>(code);
@@ -388,35 +450,26 @@ std::shared_ptr<Lisp_Obj> Lisp::eql(const std::shared_ptr<Lisp_List> &args)
 std::shared_ptr<Lisp_Obj> Lisp::some(const std::shared_ptr<Lisp_List> &args)
 {
 	if (args->length() != 5)
-		return repl_error("(some! start|nil end|nil mode lambda (seq ...))", error_msg_wrong_num_of_args, args);
+		return repl_error("(some! start end mode lambda (seq ...))", error_msg_wrong_num_of_args, args);
 	if (!args->m_v[4]->is_type(lisp_type_list))
-		return repl_error("(some! start|nil end|nil mode lambda (seq ...))", error_msg_not_a_list, args);
-	if ((args->m_v[0] == m_sym_nil || args->m_v[0]->is_type(lisp_type_integer))
-		&& (args->m_v[1] == m_sym_nil || args->m_v[1]->is_type(lisp_type_integer)))
+		return repl_error("(some! start end mode lambda (seq ...))", error_msg_not_a_list, args);
+	if (args->m_v[0]->is_type(lisp_type_integer) && args->m_v[1]->is_type(lisp_type_integer))
 	{
 		auto max_len = 1000000ll;
 		for (auto &&o : std::static_pointer_cast<Lisp_List>(args->m_v[4])->m_v)
 		{
 			if (!o->is_type(lisp_type_seq))
-				return repl_error("(some! start|nil end|nil mode lambda (seq ...))", error_msg_not_a_sequence, args);
+				return repl_error("(some! start end mode lambda (seq ...))", error_msg_not_a_sequence, args);
 			max_len = std::min(max_len, std::static_pointer_cast<Lisp_Seq>(o)->length());
 		}
 
 		auto value = std::static_pointer_cast<Lisp_Obj>(m_sym_nil);
 		if (max_len != 1000000)
 		{
-			auto start = 0ll;
-			if (args->m_v[0]->is_type(lisp_type_integer))
-			{
-				start = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-				if (start < 0) start = max_len + start + 1;
-			}
-			auto end = max_len;
-			if (args->m_v[1]->is_type(lisp_type_integer))
-			{
-				end = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
-				if (end < 0) end = max_len + end + 1;
-			}
+			auto start = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
+			if (start < 0) start = max_len + start + 1;
+			auto end = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
+			if (end < 0) end = max_len + end + 1;
 			if (start < 0 || start > max_len || end < 0 || end > max_len)
 				return repl_error("(some! start|nil end|nil mode lambda (seq ...))", error_msg_not_valid_index, args);
 			auto dir = 1;
@@ -428,9 +481,9 @@ std::shared_ptr<Lisp_Obj> Lisp::some(const std::shared_ptr<Lisp_List> &args)
 			}
 
 			env_push();
-			auto params = std::make_shared<Lisp_List>();
 			while (start != end)
 			{
+				auto params = std::make_shared<Lisp_List>();
 				m_env->insert(m_sym_underscore, std::make_shared<Lisp_Integer>(start));
 				for (auto &&o : std::static_pointer_cast<Lisp_List>(args->m_v[4])->m_v)
 				{
@@ -440,7 +493,6 @@ std::shared_ptr<Lisp_Obj> Lisp::some(const std::shared_ptr<Lisp_List> &args)
 				if (value->type() == lisp_type_error) break;
 				if (args->m_v[2] != m_sym_nil && value != m_sym_nil) break;
 				if (args->m_v[2] == m_sym_nil && value == m_sym_nil) break;
-				params->m_v.clear();
 				start += dir;
 			}
 			env_pop();
@@ -452,36 +504,27 @@ std::shared_ptr<Lisp_Obj> Lisp::some(const std::shared_ptr<Lisp_List> &args)
 
 std::shared_ptr<Lisp_Obj> Lisp::each(const std::shared_ptr<Lisp_List> &args)
 {
-	if (args->length() != 5)
-		return repl_error("(each! start|nil end|nil lambda|nil lambda (seq ...))", error_msg_wrong_num_of_args, args);
-	if (!args->m_v[4]->is_type(lisp_type_list))
-		return repl_error("(each! start|nil end|nil lambda|nil lambda (seq ...))", error_msg_not_a_list, args);
-	if ((args->m_v[0] == m_sym_nil || args->m_v[0]->is_type(lisp_type_integer))
-		&& (args->m_v[1] == m_sym_nil || args->m_v[1]->is_type(lisp_type_integer)))
+	if (args->length() != 4)
+		return repl_error("(each! start end lambda (seq ...))", error_msg_wrong_num_of_args, args);
+	if (!args->m_v[3]->is_type(lisp_type_list))
+		return repl_error("(each! start end lambda lambda (seq ...))", error_msg_not_a_list, args);
+	if (args->m_v[0]->is_type(lisp_type_integer) && args->m_v[1]->is_type(lisp_type_integer))
 	{
 		auto max_len = 1000000ll;
-		for (auto &&o : std::static_pointer_cast<Lisp_List>(args->m_v[4])->m_v)
+		for (auto &&o : std::static_pointer_cast<Lisp_List>(args->m_v[3])->m_v)
 		{
 			if (!o->is_type(lisp_type_seq))
-				return repl_error("(each! start|nil end|nil lambda|nil lambda (seq ...))", error_msg_not_a_sequence, args);
+				return repl_error("(each! start end lambda lambda (seq ...))", error_msg_not_a_sequence, args);
 			max_len = std::min(max_len, std::static_pointer_cast<Lisp_Seq>(o)->length());
 		}
 
 		auto value = std::static_pointer_cast<Lisp_Obj>(m_sym_nil);
 		if (max_len != 1000000)
 		{
-			auto start = 0ll;
-			if (args->m_v[0]->is_type(lisp_type_integer))
-			{
-				start = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
-				if (start < 0) start = max_len + start + 1;
-			}
-			auto end = max_len;
-			if (args->m_v[1]->is_type(lisp_type_integer))
-			{
-				end = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
-				if (end < 0) end = max_len + end + 1;
-			}
+			auto start = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
+			if (start < 0) start = max_len + start + 1;
+			auto end = std::static_pointer_cast<Lisp_Integer>(args->m_v[1])->m_value;
+			if (end < 0) end = max_len + end + 1;
 			if (start < 0 || start > max_len || end < 0 || end > max_len)
 				return repl_error("(each! start|nil end|nil lambda|nil lambda (seq ...))", error_msg_not_valid_index, args);
 			auto dir = 1;
@@ -493,51 +536,42 @@ std::shared_ptr<Lisp_Obj> Lisp::each(const std::shared_ptr<Lisp_List> &args)
 			}
 
 			env_push();
-			auto params = std::make_shared<Lisp_List>();
 			while (start != end)
 			{
+				auto params = std::make_shared<Lisp_List>();
 				m_env->insert(m_sym_underscore, std::make_shared<Lisp_Integer>(start));
-				for (auto &&o : std::static_pointer_cast<Lisp_List>(args->m_v[4])->m_v)
+				for (auto &&o : std::static_pointer_cast<Lisp_List>(args->m_v[3])->m_v)
 				{
 					params->m_v.push_back(std::static_pointer_cast<Lisp_Seq>(o)->elem(start));
 				}
-				value = repl_apply(args->m_v[3], params);
+				value = repl_apply(args->m_v[2], params);
 				if (value->type() == lisp_type_error) break;
-				if (args->m_v[2] != m_sym_nil)
-				{
-					params->m_v.clear();
-					params->m_v.push_back(value);
-					value = repl_apply(args->m_v[2], params);
-					if (value->type() == lisp_type_error) break;
-				}
-				params->m_v.clear();
 				start += dir;
 			}
 			env_pop();
 		}
 		return value;
 	}
-	return repl_error("(each! start|nil end|nil lambda|nil lambda (seq ...))", error_msg_wrong_types, args);
+	return repl_error("(each! start end lambda (seq ...))", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::str(const std::shared_ptr<Lisp_List> &args)
 {
-	if (args->length() == 1)
+	std::ostringstream ss;
+	for (auto &&o : args->m_v)
 	{
-		auto t = args->m_v[0]->type();
-		switch (t)
+		switch (o->type())
 		{
 		case lisp_type_string:
-			return args->m_v[0];
-		case lisp_type_symbol:
-			return std::make_shared<Lisp_String>(std::static_pointer_cast<Lisp_Symbol>(args->m_v[0])->m_string);
+			std::static_pointer_cast<Lisp_String>(o)->print1(ss);
+			break;
 		case lisp_type_string_stream:
-			return std::make_shared<Lisp_String>(std::static_pointer_cast<Lisp_String_Stream>(args->m_v[0])->m_stream.str());
+			std::static_pointer_cast<Lisp_String_Stream>(o)->print1(ss);
+			break;
+		case lisp_type_symbol:
 		default:
-			std::ostringstream ss;
-			args->m_v[0]->print(ss);
-			return std::make_shared<Lisp_String>(ss.str());
+			o->print(ss);
 		}
 	}
-	return repl_error("(str form)", error_msg_wrong_num_of_args, args);
+	return std::make_shared<Lisp_String>(ss.str());
 }

@@ -106,13 +106,34 @@ std::shared_ptr<Lisp_Obj> Lisp::env(const std::shared_ptr<Lisp_List> &args)
 	{
 		return m_env;
 	}
-	else if (args->length() == 1
+	else if (args->length() != 0
 		&& args->m_v[0]->is_type(lisp_type_integer))
 	{
-		m_env->resize(std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value);
-		return m_env;
+		auto num_buckets = std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value;
+		if (num_buckets > 0)
+		{
+			m_env->resize(std::static_pointer_cast<Lisp_Integer>(args->m_v[0])->m_value);
+			return m_env;
+		}
+		return std::make_shared<Lisp_Env>(-num_buckets);
 	}
 	return repl_error("(env [num])", error_msg_wrong_types, args);
+}
+
+std::shared_ptr<Lisp_Obj> Lisp::penv(const std::shared_ptr<Lisp_List> &args)
+{
+	if (!args->length())
+	{
+		if (!m_env->m_parent) return m_sym_nil;
+		return m_env->m_parent;
+	}
+	else if (args->length() == 1 && args->m_v[0]->is_type(lisp_type_env))
+	{
+		auto env = std::static_pointer_cast<Lisp_Env>(args->m_v[0])->m_parent;
+		if (!env) return m_sym_nil;
+		return env;
+	}
+	return repl_error("(penv [env])", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::defq(const std::shared_ptr<Lisp_List> &args)
@@ -146,6 +167,8 @@ std::shared_ptr<Lisp_Obj> Lisp::setq(const std::shared_ptr<Lisp_List> &args)
 			if (!(*itr)->is_type(lisp_type_symbol))
 				return repl_error("(setq var val [var val] ...)", error_msg_not_a_symbol, args);
 			auto sym = std::static_pointer_cast<Lisp_Symbol>(*itr);
+			if (sym->m_string[0] == '+')
+				return repl_error("(setq var val [var val] ...)", error_msg_rebind_constant, args);
 			value = repl_eval(*(++itr));
 			if (value->type() == lisp_type_error) break;
 			if (!m_env->set(sym, value))
@@ -180,6 +203,27 @@ std::shared_ptr<Lisp_Obj> Lisp::def(const std::shared_ptr<Lisp_List> &args)
 	return repl_error("(def env var val [var val] ...)", error_msg_wrong_num_of_args, args);
 }
 
+std::shared_ptr<Lisp_Obj> Lisp::undef(const std::shared_ptr<Lisp_List> &args)
+{
+	auto len = args->length();
+	if (len >= 2)
+	{
+		if (args->m_v[0]->is_type(lisp_type_env))
+		{
+			auto env = std::static_pointer_cast<Lisp_Env>(args->m_v[0]);
+			for (auto itr = begin(args->m_v) + 1; itr != end(args->m_v); ++itr)
+			{
+				if (!(*itr)->is_type(lisp_type_symbol))
+					return repl_error("(undef env var [var] ...)", error_msg_not_a_symbol, args);
+				env->erase(std::static_pointer_cast<Lisp_Symbol>(*itr));
+			}
+			return m_sym_nil;
+		}
+		return repl_error("(undef env var [var] ...)", error_msg_not_an_environment, args);
+	}
+	return repl_error("(undef env var [var] ...)", error_msg_wrong_num_of_args, args);
+}
+
 std::shared_ptr<Lisp_Obj> Lisp::set(const std::shared_ptr<Lisp_List> &args)
 {
 	auto len = args->length();
@@ -194,6 +238,8 @@ std::shared_ptr<Lisp_Obj> Lisp::set(const std::shared_ptr<Lisp_List> &args)
 				if (!(*itr)->is_type(lisp_type_symbol))
 					return repl_error("(set env var val [var val] ...)", error_msg_not_a_symbol, args);
 				auto sym = std::static_pointer_cast<Lisp_Symbol>(*itr);
+				if (sym->m_string[0] == '+')
+					return repl_error("(setq var val [var val] ...)", error_msg_rebind_constant, args);
 				value = (*(++itr));
 				if (!env->set(sym, value))
 					return repl_error("(set env var val [var val] ...)", error_msg_symbol_not_bound, args);
@@ -215,7 +261,17 @@ std::shared_ptr<Lisp_Obj> Lisp::defined(const std::shared_ptr<Lisp_List> &args)
 		if (itr) return itr->second;
 		return m_sym_nil;
 	}
-	return repl_error("(def? var)", error_msg_wrong_types, args);
+	else if (args->length() == 2
+		&& args->m_v[0]->is_type(lisp_type_symbol)
+		&& args->m_v[1]->is_type(lisp_type_env))
+	{
+		auto sym = std::static_pointer_cast<Lisp_Symbol>(args->m_v[0]);
+		auto env = std::static_pointer_cast<Lisp_Env>(args->m_v[1]);
+		auto itr = env->find(sym);
+		if (itr) return itr->second;
+		return m_sym_nil;
+	}
+	return repl_error("(get var [env])", error_msg_wrong_types, args);
 }
 
 std::shared_ptr<Lisp_Obj> Lisp::defmacro(const std::shared_ptr<Lisp_List> &args)

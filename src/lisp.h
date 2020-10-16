@@ -18,6 +18,7 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 */
 
+
 #ifndef LISP_H
 #define LISP_H
 
@@ -35,7 +36,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#ifdef _WIN64
+#ifdef WIN32
+#include <direct.h>
 #include <algorithm>
 #include <cctype>
 #endif
@@ -46,17 +48,18 @@ enum Lisp_Type
 	lisp_type_integer = 1 << 1,
 	lisp_type_string = 1 << 2,
 	lisp_type_symbol = 1 << 3,
+	lisp_type_function = 1 << 4,
 
-	lisp_type_env = 1 << 4,
-	lisp_type_function = 1 << 5,
-	lisp_type_file_stream = 1 << 6,
-	lisp_type_string_stream = 1 << 7,
-	lisp_type_sys_stream = 1 << 8,
-	lisp_type_error = 1 << 9,
+	lisp_type_env = 1 << 5,
+	lisp_type_file_istream = 1 << 6,
+	lisp_type_file_ostream = 1 << 7,
+	lisp_type_string_stream = 1 << 8,
+	lisp_type_sys_stream = 1 << 9,
+	lisp_type_error = 1 << 10,
 
-	lisp_type_seq = 1 << 10,
-	lisp_type_istream = 1 << 11,
-	lisp_type_ostream = 1 << 12,
+	lisp_type_seq = 1 << 11,
+	lisp_type_istream = 1 << 12,
+	lisp_type_ostream = 1 << 13,
 };
 
 const int type_mask_obj = 0;
@@ -71,7 +74,8 @@ const int type_mask_list = type_mask_seq | lisp_type_list;
 const int type_mask_string = type_mask_seq | lisp_type_string;
 const int type_mask_symbol = type_mask_string | lisp_type_symbol;
 const int type_mask_sys_stream = type_mask_istream | lisp_type_sys_stream;
-const int type_mask_file_stream = type_mask_istream | lisp_type_file_stream;
+const int type_mask_file_istream = type_mask_istream | lisp_type_file_istream;
+const int type_mask_file_ostream = type_mask_ostream | lisp_type_file_ostream;
 const int type_mask_string_stream = type_mask_ostream | lisp_type_string_stream;
 
 enum Lisp_Error_Num
@@ -96,7 +100,8 @@ enum Lisp_Error_Num
 	error_msg_open_error,
 	error_msg_symbol_not_bound,
 	error_msg_wrong_num_of_args,
-	error_msg_wrong_types
+	error_msg_wrong_types,
+	error_msg_rebind_constant
 };
 
 class Lisp;
@@ -175,6 +180,7 @@ public:
 	const Lisp_Type type() const override { return lisp_type_string; }
 	Lisp_Type is_type(Lisp_Type t) const override { return (Lisp_Type)(t & type_mask_string); }
 	void print(std::ostream &out) const override;
+	void print1(std::ostream &out) const;
 	long long length() const override;
 	std::shared_ptr<Lisp_Obj> elem(long long i) const override;
 	std::shared_ptr<Lisp_Obj> slice(long long s, long long e) const override;
@@ -246,18 +252,32 @@ public:
 	std::istream &m_stream;
 };
 
-class Lisp_File_Stream : public Lisp_IStream
+class Lisp_File_IStream : public Lisp_IStream
 {
 public:
-	Lisp_File_Stream(const std::string &path);
-	const Lisp_Type type() const override { return lisp_type_file_stream; }
-	Lisp_Type is_type(Lisp_Type t) const override { return (Lisp_Type)(t & type_mask_file_stream); }
+	Lisp_File_IStream(const std::string &path);
+	const Lisp_Type type() const override { return lisp_type_file_istream; }
+	Lisp_Type is_type(Lisp_Type t) const override { return (Lisp_Type)(t & type_mask_file_istream); }
 	void print(std::ostream &out) const override;
 	bool is_open() const override;
 	std::istream &get_stream() override;
 	int read_char() override;
 	std::string read_line(bool &state) override;
 	std::ifstream m_stream;
+};
+
+class Lisp_File_OStream : public Lisp_OStream
+{
+public:
+	Lisp_File_OStream(const std::string &path, int mode);
+	const Lisp_Type type() const override { return lisp_type_file_ostream; }
+	Lisp_Type is_type(Lisp_Type t) const override { return (Lisp_Type)(t & type_mask_file_ostream); }
+	void print(std::ostream &out) const override;
+	bool is_open() const override;
+	std::ostream &get_stream() override;
+	void write_char(int c) override;
+	void write_line(const std::string &s) override;
+	std::ofstream m_stream;
 };
 
 class Lisp_String_Stream : public Lisp_OStream
@@ -267,6 +287,7 @@ public:
 	const Lisp_Type type() const override { return lisp_type_string_stream; }
 	Lisp_Type is_type(Lisp_Type t) const override { return (Lisp_Type)(t & type_mask_string_stream); }
 	void print(std::ostream &out) const override;
+	void print1(std::ostream &out) const;
 	bool is_open() const override;
 	std::ostream &get_stream() override;
 	void write_char(int c) override;
@@ -290,6 +311,7 @@ public:
 	Lisp_Env_Pair *set(const std::shared_ptr<Lisp_Symbol> &sym, const std::shared_ptr<Lisp_Obj> &obj);
 	std::shared_ptr<Lisp_Obj> get(const std::shared_ptr<Lisp_Symbol> &sym);
 	void insert(const std::shared_ptr<Lisp_Symbol> &sym, const std::shared_ptr<Lisp_Obj> &obj);
+	void erase(const std::shared_ptr<Lisp_Symbol> &sym);
 	void resize(long long num_buckets);
 	Lisp_Env_Buckets::iterator get_bucket(const std::shared_ptr<Lisp_Symbol> &sym);
 	Lisp_Env_Buckets m_buckets;
@@ -320,7 +342,7 @@ public:
 	int repl_expand(std::shared_ptr<Lisp_Obj> &obj, int cnt);
 	std::shared_ptr<Lisp_Obj> repl_read_string(std::istream &in, char term) const;
 	std::shared_ptr<Lisp_Obj> repl_read_symbol(std::istream &in);
-	std::shared_ptr<Lisp_Obj> repl_read_number(std::istream &in) const;
+	std::shared_ptr<Lisp_Obj> repl_read_number(std::istream &in);
 	std::shared_ptr<Lisp_Obj> repl_read_list(std::istream &in);
 	std::shared_ptr<Lisp_Obj> repl_read_rmacro(std::istream &in, const std::shared_ptr<Lisp_Symbol> &sym);
 	std::shared_ptr<Lisp_Obj> repl_read(std::istream &in);
@@ -333,11 +355,11 @@ public:
 	std::shared_ptr<Lisp_Obj> mul(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> div(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> mod(const std::shared_ptr<Lisp_List> &args);
-	std::shared_ptr<Lisp_Obj> fmul(const std::shared_ptr<Lisp_List> &args);
-	std::shared_ptr<Lisp_Obj> fdiv(const std::shared_ptr<Lisp_List> &args);
-	std::shared_ptr<Lisp_Obj> fmod(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> neg(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> abs(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> max(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> min(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> random(const std::shared_ptr<Lisp_List> &args);
 
 	std::shared_ptr<Lisp_Obj> eq(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> ne(const std::shared_ptr<Lisp_List> &args);
@@ -355,6 +377,7 @@ public:
 	std::shared_ptr<Lisp_Obj> basr(const std::shared_ptr<Lisp_List> &args);
 
 	std::shared_ptr<Lisp_Obj> list(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> cap(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> push(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> pop(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> length(const std::shared_ptr<Lisp_List> &args);
@@ -364,6 +387,7 @@ public:
 	std::shared_ptr<Lisp_Obj> cat(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> clear(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> copy(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> rfind(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> find(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> merge(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> split(const std::shared_ptr<Lisp_List> &args);
@@ -384,7 +408,6 @@ public:
 	std::shared_ptr<Lisp_Obj> readline(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> write(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> writechar(const std::shared_ptr<Lisp_List> &args);
-	std::shared_ptr<Lisp_Obj> writeline(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> prin(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> print(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> repl(const std::shared_ptr<Lisp_List> &args);
@@ -404,11 +427,14 @@ public:
 	std::shared_ptr<Lisp_Obj> lcatch(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> type(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> lthrow(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> macroexpand(const std::shared_ptr<Lisp_List> &args);
 
 	std::shared_ptr<Lisp_Obj> env(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> penv(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> defq(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> setq(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> def(const std::shared_ptr<Lisp_List> &args);
+	std::shared_ptr<Lisp_Obj> undef(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> set(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> defined(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> sym(const std::shared_ptr<Lisp_List> &args);
@@ -416,6 +442,8 @@ public:
 	std::shared_ptr<Lisp_Obj> defmacro(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> lambda(const std::shared_ptr<Lisp_List> &args);
 	std::shared_ptr<Lisp_Obj> bind(const std::shared_ptr<Lisp_List> &args);
+
+	std::shared_ptr<Lisp_Obj> piidirlist(const std::shared_ptr<Lisp_List> &args);
 
 	std::set<std::shared_ptr<Lisp_Symbol>, Intern_Cmp> m_intern_sym_set;
 	std::shared_ptr<Lisp_Env> m_env;
@@ -434,6 +462,7 @@ public:
 	std::shared_ptr<Lisp_Symbol> m_sym_underscore;
 	std::shared_ptr<Lisp_Symbol> m_sym_stream_name;
 	std::shared_ptr<Lisp_Symbol> m_sym_stream_line;
+	std::shared_ptr<Lisp_Symbol> m_sym_file_includes;
 	unsigned long m_next_sym = 0;
 	friend void qquote1(Lisp *lisp, const std::shared_ptr<Lisp_Obj> &o, std::shared_ptr<Lisp_List> &cat_list);
 };

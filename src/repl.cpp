@@ -84,16 +84,18 @@ std::shared_ptr<Lisp_Obj> Lisp::repl_read_symbol(std::istream &in)
 	return intern(obj);
 }
 
-std::shared_ptr<Lisp_Obj> Lisp::repl_read_number(std::istream &in) const
+std::shared_ptr<Lisp_Obj> Lisp::repl_read_number(std::istream &in)
 {
-	auto obj = std::make_shared<Lisp_Integer>();
 	auto p = in.peek();
 	auto sign = 1;
 	if (p == '-')
 	{
-		sign = -1;
 		in.get();
+		p = in.peek();
+		if (p < '0') return intern(std::make_shared<Lisp_Symbol>("-"));
+		sign = -1;
 	}
+	auto obj = std::make_shared<Lisp_Integer>();
 	auto buffer = std::string{};
 	for (;;)
 	{
@@ -233,6 +235,17 @@ int Lisp::repl_expand(std::shared_ptr<Lisp_Obj> &o, int cnt)
 	return cnt;
 }
 
+std::shared_ptr<Lisp_Obj> Lisp::macroexpand(const std::shared_ptr<Lisp_List> &args)
+{
+	if (args->length() == 1)
+	{
+		auto obj = copy(args);
+		while (repl_expand(obj, 0));
+		return obj;
+	}
+	return repl_error("(macroexpand form)", error_msg_wrong_types, args);
+}
+
 std::shared_ptr<Lisp_Obj> Lisp::repl_error(const std::string &msg, int type, const std::shared_ptr<Lisp_Obj> &o)
 {
 	static const std::vector<std::string> errors =
@@ -257,7 +270,8 @@ std::shared_ptr<Lisp_Obj> Lisp::repl_error(const std::string &msg, int type, con
 		{"open_error"},
 		{"symbol_not_bound"},
 		{"wrong_num_of_args"},
-		{"wrong_types"}
+		{"wrong_types"},
+		{"rebind_constant"}
 	};
 
 	auto file = std::static_pointer_cast<Lisp_String>(m_env->get(m_sym_stream_name));
@@ -369,6 +383,7 @@ std::shared_ptr<Lisp_Obj> Lisp::repl_eval(const std::shared_ptr<Lisp_Obj> &obj)
 		case lisp_type_symbol:
 		{
 			auto sym = std::static_pointer_cast<Lisp_Symbol>(obj);
+			if (sym->m_string[0] == ':') return obj;
 			auto obj = m_env->get(sym);
 			if (obj == nullptr)
 			{
